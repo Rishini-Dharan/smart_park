@@ -1,7 +1,6 @@
 streamlit
-opencv-python
+opencv-python-headless
 torch
 ultralytics
 numpy
 pandas
-ultralytics==8.0.50  # Replace with the latest version you used
