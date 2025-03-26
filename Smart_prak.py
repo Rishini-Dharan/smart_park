@@ -100,7 +100,7 @@ if start_button:
             break
 
     cap.release()
-    cv2.destroyAllWindows()
+   
 
 # Show vehicle log table
 if os.path.exists(CSV_FILE):
