@@ -9,7 +9,7 @@ from ultralytics import YOLO
 from collections import defaultdict
 
 # Load the pre-trained YOLOv8 model for vehicle detection
-model = YOLO("yolov8n.pt")  # Using YOLOv8 nano model
+model = YOLO("yolov8n.pt", autoshape=False)
 
 # File to store vehicle logs
 CSV_FILE = "smart_parking_log.csv"
