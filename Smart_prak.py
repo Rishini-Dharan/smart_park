@@ -100,9 +100,6 @@ if start_button:
             break
 
     cap.release()
-   
-
-# Show vehicle log table
 if os.path.exists(CSV_FILE):
     with open(CSV_FILE, "r", encoding="utf-8") as file:
         csv_reader = csv.reader(file)
