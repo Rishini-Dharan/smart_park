@@ -4,7 +4,7 @@ torch
 ultralytics
 numpy
 pandas
-cs2
+
 opencv-python
 streamlit
 opencv-python-headless
