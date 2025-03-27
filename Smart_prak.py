@@ -83,7 +83,6 @@ if stop_camera:
     st.session_state.camera_active = False
     if st.session_state.cap is not None:
         st.session_state.cap.release()
-        cv2.destroyAllWindows()
         st.session_state.cap = None
     log_event("Camera Stopped")  # Log event
 
@@ -92,7 +91,6 @@ if stop_camera:
 # ===============================
 if st.session_state.camera_active and st.session_state.cap is not None and st.session_state.cap.isOpened():
     frame_placeholder = st.empty()
-    st.write("**CV is running...**")
     while st.session_state.camera_active:
         ret, frame = st.session_state.cap.read()
         if not ret:
@@ -107,8 +105,10 @@ if st.session_state.camera_active and st.session_state.cap is not None and st.se
     # Release camera when stopped
     if st.session_state.cap is not None:
         st.session_state.cap.release()
-        cv2.destroyAllWindows()
         st.session_state.cap = None
+
+    # Close all OpenCV windows
+    cv2.destroyAllWindows()
 
 # ===============================
 # File Upload Section
