@@ -84,7 +84,6 @@ if stop_camera:
     if st.session_state.cap is not None:
         st.session_state.cap.release()
         st.session_state.cap = None
-        cv2.destroyAllWindows()  # Close all OpenCV windows
     log_event("Camera Stopped")  # Log event
 
 # ===============================
@@ -103,6 +102,13 @@ if st.session_state.camera_active and st.session_state.cap is not None and st.se
         frame_placeholder.image(frame_rgb, caption="Live Camera Feed", use_column_width=True)
         # Small delay for smoother streaming
         time.sleep(0.1)
+    # Release camera when stopped
+    if st.session_state.cap is not None:
+        st.session_state.cap.release()
+        st.session_state.cap = None
+
+    # Close all OpenCV windows
+    cv2.destroyAllWindows()
 
 # ===============================
 # File Upload Section
