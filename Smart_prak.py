@@ -5,9 +5,6 @@ import os
 import datetime
 import numpy as np
 from ultralytics import YOLO
-from collections import defaultdict
-import threading
-import queue
 
 # Load the pre-trained YOLOv8 model for vehicle detection
 model = YOLO("yolov8n.pt")
@@ -15,125 +12,87 @@ model = YOLO("yolov8n.pt")
 # File to store vehicle logs
 CSV_FILE = "smart_parking_log.csv"
 
-# Configuration
-ENTRY_ZONE_Y = 200
-EXIT_ZONE_Y = 500
-FRAME_QUEUE = queue.Queue(maxsize=1)
-STOP_EVENT = threading.Event()
-
 def initialize_csv():
-    """Initialize CSV log file."""
+    """Creates the CSV file with headers if not exists or if empty."""
     if not os.path.exists(CSV_FILE) or os.stat(CSV_FILE).st_size == 0:
         with open(CSV_FILE, "w", newline="", encoding="utf-8") as file:
             writer = csv.writer(file)
             writer.writerow(["Vehicle Type", "Vehicle Model", "Action", "Date", "Time"])
 
-def log_vehicle(vehicle_type, action):
-    """Log vehicle entry/exit with timestamp."""
+def log_vehicle(vehicle_type, vehicle_model, action):
+    """Logs vehicle entry/exit with time and date."""
     now = datetime.datetime.now()
-    with open(CSV_FILE, "a", newline="", encoding="utf-8") as file:
-        writer = csv.writer(file)
-        writer.writerow([
-            vehicle_type,
-            "Unknown Model",
-            action,
-            now.strftime("%Y-%m-%d"),
-            now.strftime("%H:%M:%S")
-        ])
-
-def video_processing():
-    """Main video processing loop."""
-    cap = cv2.VideoCapture(0)
-    track_history = defaultdict(lambda: [])
-    
+    date = now.strftime("%Y-%m-%d")
+    time = now.strftime("%H:%M:%S")
     try:
-        while not STOP_EVENT.is_set():
-            success, frame = cap.read()
-            if not success:
-                st.error("Failed to capture video")
-                break
-            
-            results = model.track(frame, persist=True, verbose=False)
-            
-            if results[0].boxes.id is not None:
-                boxes = results[0].boxes.xyxy.cpu()
-                track_ids = results[0].boxes.id.int().cpu().tolist()
-                clss = results[0].boxes.cls.cpu().tolist()
-                
-                for box, track_id, cls in zip(boxes, track_ids, clss):
-                    label = model.names[int(cls)]
-                    if label not in ["car", "truck", "motorcycle"]:
-                        continue
-                    
-                    x1, y1, x2, y2 = map(int, box)
-                    center_y = (y1 + y2) // 2
-                    
-                    # Track movement history
-                    track = track_history[track_id]
-                    track.append(center_y)
-                    if len(track) > 30:  # Keep last 30 positions
-                        track.pop(0)
-                    
-                    # Detect direction
-                    if len(track) >= 2:
-                        direction = track[-1] - track[-2]
-                        
-                        # Entry detection
-                        if center_y > ENTRY_ZONE_Y and direction > 0:
-                            log_vehicle(label, "Entry")
-                        
-                        # Exit detection
-                        if center_y < EXIT_ZONE_Y and direction < 0:
-                            log_vehicle(label, "Exit")
-                    
-                    # Draw bounding box
-                    cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
-                    cv2.putText(frame, f"{label} #{track_id}", (x1, y1-10), 
-                               cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
-            
-            # Put processed frame in queue
-            if FRAME_QUEUE.empty():
-                FRAME_QUEUE.put(frame)
-                
-    finally:
-        cap.release()
-        STOP_EVENT.clear()
+        with open(CSV_FILE, "a", newline="", encoding="utf-8") as file:
+            writer = csv.writer(file)
+            writer.writerow([vehicle_type, vehicle_model, action, date, time])
+        st.success(f"Logged: {vehicle_type} {vehicle_model} {action} at {time} on {date}")
+    except PermissionError:
+        st.error("Error: Permission denied while writing to CSV. Ensure the file is not open elsewhere.")
+
+# Initialize CSV
+initialize_csv()
 
 # Streamlit UI
 st.title("🚗 Smart Parking System")
-initialize_csv()
+st.write("This system detects and logs vehicle entry/exit using YOLOv8 and OpenCV.")
 
-# Start/Stop controls
-col1, col2 = st.columns(2)
-with col1:
-    if st.button("Start Detection", key="start"):
-        STOP_EVENT.clear()
-        threading.Thread(target=video_processing, daemon=True).start()
+st.markdown(
+    """
+    **Note:** In this deployment, please use the browser camera to capture an image for detection.
+    """
+)
 
-with col2:
-    if st.button("Stop Detection", key="stop"):
-        STOP_EVENT.set()
+# Use Streamlit's camera input widget to capture an image from the user's browser
+image_file = st.camera_input("Take a picture for detection")
 
-# Display video feed
-video_placeholder = st.empty()
+if image_file is not None:
+    # Convert the uploaded image file to a format OpenCV can work with
+    file_bytes = np.asarray(bytearray(image_file.read()), dtype=np.uint8)
+    frame = cv2.imdecode(file_bytes, 1)
 
-while not STOP_EVENT.is_set():
-    try:
-        frame = FRAME_QUEUE.get(timeout=1)
-        video_placeholder.image(frame, channels="BGR", use_column_width=True)
-    except queue.Empty:
-        continue
+    # Run vehicle detection on the captured frame
+    results = model(frame)
+
+    # Process detections and draw bounding boxes/labels
+    for result in results:
+        for box in result.boxes:
+            # Get box coordinates, confidence, and label
+            x1, y1, x2, y2 = map(int, box.xyxy[0])
+            conf = box.conf[0].item()
+            label = result.names[int(box.cls[0])]
+
+            # Process only if confidence > 0.5 and for specific vehicle types
+            if conf > 0.5 and label in ["car", "truck", "motorcycle"]:
+                # For demonstration, we log every detection as an "Entry"
+                log_vehicle(label, "Unknown Model", "Entry")
+
+                # Draw bounding box and label
+                cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
+                cv2.putText(
+                    frame,
+                    f"{label} ({conf:.2f})",
+                    (x1, y1 - 10),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.5,
+                    (0, 255, 0),
+                    2
+                )
+
+    # Convert frame to RGB for display in Streamlit
+    frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    st.image(frame, caption="Detection Results", channels="RGB")
+else:
+    st.info("Please capture an image using your camera for detection.")
 
 # Display logs
 if os.path.exists(CSV_FILE):
     with open(CSV_FILE, "r", encoding="utf-8") as file:
-        st.subheader("Vehicle Logs")
-        st.dataframe(pd.read_csv(file))
-
-st.markdown("""
-### 📱 Mobile Tips:
-1. Use Chrome or Safari
-2. Rotate phone to landscape
-3. Position camera 2-3 meters above ground
-4. Ensure good lighting
-""")
+        csv_reader = csv.reader(file)
+        logs = list(csv_reader)
+    
+    if len(logs) > 1:
+        st.subheader("📋 Vehicle Logs")
+        st.table(logs[1:])  # Skip header row
