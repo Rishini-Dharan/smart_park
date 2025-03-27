@@ -6,6 +6,8 @@ numpy
 pandas
 
 opencv-python
+streamlit
+opencv-python-headless
 
 streamlit-webrtc
 
