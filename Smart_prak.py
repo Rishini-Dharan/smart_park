@@ -1,5 +1,5 @@
 import streamlit as st
-import cv2
+from PIL import Image, ImageDraw, ImageFont
 import torch
 import csv
 import os
@@ -40,7 +40,7 @@ initialize_csv()
 
 # Streamlit UI
 st.title("🚗 Smart Parking System")
-st.write("This system detects and logs vehicle entry/exit using YOLOv8 and OpenCV.")
+st.write("This system detects and logs vehicle entry/exit using YOLOv8.")
 
 # Initialize session state variables
 if 'vehicle_positions' not in st.session_state:
@@ -52,16 +52,18 @@ if 'vehicle_count' not in st.session_state:
 ENTRY_ZONE = (100, 200, 300, 400)  # Example coordinates (x1, y1, x2, y2)
 EXIT_ZONE = (400, 500, 600, 700)
 
-FRAME_WINDOW = st.empty()  # Placeholder for live video
-
 # Upload image
 image_file = st.file_uploader("Upload an image", type=["jpg", "png", "jpeg"])
 
 if image_file is not None:
-    # Read the image
-    image = np.array(bytearray(image_file.read()), dtype=np.uint8)
-    frame = cv2.imdecode(image, cv2.IMREAD_COLOR)
-    
+    # Read the image using Pillow
+    image = Image.open(image_file)
+    image = image.convert("RGB")
+    draw = ImageDraw.Draw(image)
+
+    # Convert image to numpy array for YOLO processing
+    frame = np.array(image)
+
     # Vehicle detection and processing
     results = model(frame)
     for result in results:
@@ -85,16 +87,16 @@ if image_file is not None:
                         st.session_state.vehicle_count -= 1
 
                 # Draw bounding boxes and labels
-                cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
-                cv2.putText(frame, f"{label} ({conf:.2f})", (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+                draw.rectangle([x1, y1, x2, y2], outline="green", width=3)
+                font = ImageFont.load_default()
+                draw.text((x1, y1 - 10), f"{label} ({conf:.2f})", font=font, fill="green")
 
     # Display vehicle count
-    cv2.putText(frame, f"Vehicles Inside: {st.session_state.vehicle_count}", (50, 50), 
-                cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 2)
+    font = ImageFont.load_default()
+    draw.text((50, 50), f"Vehicles Inside: {st.session_state.vehicle_count}", font=font, fill="yellow")
 
-    # Convert frame to RGB and display
-    frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-    FRAME_WINDOW.image(frame, channels="RGB")
+    # Display the processed image
+    st.image(image, caption="Processed Image with Vehicle Detection", use_column_width=True)
 
 # Display logs
 if os.path.exists(CSV_FILE):
