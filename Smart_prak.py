@@ -41,6 +41,8 @@ def show_csv_history():
             st.table(data[1:])
         else:
             st.info("No detection history found.")
+    else:
+        st.info("No detection history found.")
 
 # Initialize CSV file
 initialize_csv()
@@ -48,7 +50,7 @@ initialize_csv()
 # ===============================
 # Load YOLOv8 Model
 # ===============================
-model = YOLO("yolov8n.pt")  # Ensure this file is in your working directory
+model = YOLO("yolov8n.pt")  # Ensure this file is in your working directory or provide the correct path
 
 # ===============================
 # Streamlit UI Header & Sidebar
@@ -84,12 +86,14 @@ with col1:
 with col2:
     stop_camera = st.button("⏹️ Stop Camera")
 
+# Start camera
 if start_camera:
     st.session_state.camera_active = True
-    # Use CAP_DSHOW for Windows if needed; remove the flag for other OS
+    # Use CAP_DSHOW for Windows if needed; remove for other OS
     st.session_state.cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
     st.session_state.live_counts = {}  # Reset counts at start
 
+# Stop camera
 if stop_camera:
     st.session_state.camera_active = False
 
@@ -97,7 +101,7 @@ if stop_camera:
 # Function to Process Detection on an Image
 # ===============================
 def detect_vehicles_on_frame(frame_rgb, conf_thresh, classes):
-    """Detect vehicles on a given RGB frame and update counts."""
+    """Detect vehicles on a given RGB frame and return the processed frame and a count dictionary."""
     results = model(frame_rgb, conf=conf_thresh, verbose=False)
     counts = {}
     for result in results:
@@ -126,7 +130,7 @@ if st.session_state.camera_active and st.session_state.cap is not None and st.se
     while st.session_state.camera_active:
         ret, frame = st.session_state.cap.read()
         if not ret:
-            st.error("Failed to capture frame")
+            st.error("Failed to capture frame from camera.")
             st.session_state.camera_active = False
             break
         
@@ -144,17 +148,22 @@ if st.session_state.camera_active and st.session_state.cap is not None and st.se
         total_count = sum(st.session_state.live_counts.values())
         
         # Update placeholders
-        count_placeholder.markdown(f"**Live Vehicle Counts:** {st.session_state.live_counts}  \n**Total Vehicles (Session):** {total_count}")
+        count_placeholder.markdown(
+            f"**Live Vehicle Counts:** {st.session_state.live_counts}  \n"
+            f"**Total Vehicles (Session):** {total_count}"
+        )
         frame_placeholder.image(processed_frame, caption="Live Camera Feed", use_column_width=True)
         
         # Small delay for smoother streaming
         time.sleep(0.1)
     
     # When the camera is stopped, release the resource and log final counts
-    st.session_state.cap.release()
-    cv2.destroyAllWindows()
-    st.session_state.cap = None
+    if st.session_state.cap is not None:
+        st.session_state.cap.release()
+        cv2.destroyAllWindows()
+        st.session_state.cap = None
 
+    # Log final counts to CSV (only if we had a proper session)
     if st.session_state.live_counts:
         for vehicle_type, count in st.session_state.live_counts.items():
             log_vehicle(vehicle_type, count)
@@ -178,6 +187,7 @@ if uploaded_file is not None:
         st.image(processed_img, caption="Detected Vehicles", use_column_width=True)
         st.write("Detection Counts:", upload_counts)
         st.write("Total Vehicles Detected:", total_upload)
+        # Log to CSV
         for vehicle_type, count in upload_counts.items():
             log_vehicle(vehicle_type, count)
         st.success("Logged uploaded image detection counts to CSV.")
