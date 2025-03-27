@@ -41,64 +41,51 @@ st.write("This system detects and logs vehicle entry/exit using YOLOv8 and OpenC
 
 st.markdown(
     """
-    **Note:** Please ensure that your webcam is accessible for the live feed.
+    **Note:** In this deployment, please use the browser camera to capture an image for detection.
     """
 )
 
-# Function to open webcam with different indices
-def open_webcam():
-    for index in range(3):
-        cap = cv2.VideoCapture(index)
-        if cap.isOpened():
-            return cap
-    return None
+# Use Streamlit's camera input widget to capture an image from the user's browser
+image_file = st.camera_input("Take a picture for detection")
 
-# Start capturing video from the webcam
-cap = open_webcam()
+if image_file is not None:
+    # Convert the uploaded image file to a format OpenCV can work with
+    file_bytes = np.asarray(bytearray(image_file.read()), dtype=np.uint8)
+    frame = cv2.imdecode(file_bytes, 1)
 
-if not cap:
-    st.error("Error: Could not open webcam. Please check the connection and permissions.")
+    # Run vehicle detection on the captured frame
+    results = model(frame)
+
+    # Process detections and draw bounding boxes/labels
+    for result in results:
+        for box in result.boxes:
+            # Get box coordinates, confidence, and label
+            x1, y1, x2, y2 = map(int, box.xyxy[0])
+            conf = box.conf[0].item()
+            label = result.names[int(box.cls[0])]
+
+            # Process only if confidence > 0.5 and for specific vehicle types
+            if conf > 0.5 and label in ["car", "truck", "motorcycle"]:
+                # For demonstration, we log every detection as an "Entry"
+                log_vehicle(label, "Unknown Model", "Entry")
+
+                # Draw bounding box and label
+                cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
+                cv2.putText(
+                    frame,
+                    f"{label} ({conf:.2f})",
+                    (x1, y1 - 10),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.5,
+                    (0, 255, 0),
+                    2
+                )
+
+    # Convert frame to RGB for display in Streamlit
+    frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    st.image(frame, caption="Detection Results", channels="RGB")
 else:
-    stframe = st.empty()
-    while True:
-        ret, frame = cap.read()
-        if not ret:
-            st.error("Error: Failed to capture image from webcam.")
-            break
-        
-        # Run vehicle detection on the captured frame
-        results = model(frame)
-
-        # Process detections and draw bounding boxes/labels
-        for result in results:
-            for box in result.boxes:
-                # Get box coordinates, confidence, and label
-                x1, y1, x2, y2 = map(int, box.xyxy[0])
-                conf = box.conf[0].item()
-                label = result.names[int(box.cls[0])]
-
-                # Process only if confidence > 0.5 and for specific vehicle types
-                if conf > 0.5 and label in ["car", "truck", "motorcycle"]:
-                    # For demonstration, we log every detection as an "Entry"
-                    log_vehicle(label, "Unknown Model", "Entry")
-
-                    # Draw bounding box and label
-                    cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
-                    cv2.putText(
-                        frame,
-                        f"{label} ({conf:.2f})",
-                        (x1, y1 - 10),
-                        cv2.FONT_HERSHEY_SIMPLEX,
-                        0.5,
-                        (0, 255, 0),
-                        2
-                    )
-
-        # Convert frame to RGB for display in Streamlit
-        frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        stframe.image(frame, channels="RGB")
-
-    cap.release()
+    st.info("Please capture an image using your camera for detection.")
 
 # Display logs
 if os.path.exists(CSV_FILE):
