@@ -1,6 +1,5 @@
 import streamlit as st
 import cv2
-import time
 import torch
 import numpy as np
 from ultralytics import YOLO
@@ -8,6 +7,7 @@ from PIL import Image
 import csv
 import datetime
 import os
+import pandas as pd
 
 # ===============================
 # CSV Logging Functions
@@ -15,30 +15,27 @@ import os
 CSV_FILE = "smart_parking_log.csv"
 
 def initialize_csv():
-    """Creates the CSV file with headers if it doesn't exist or is empty."""
+    """Creates/initializes the CSV file with headers"""
     if not os.path.exists(CSV_FILE) or os.stat(CSV_FILE).st_size == 0:
         with open(CSV_FILE, "w", newline="", encoding="utf-8") as file:
             writer = csv.writer(file)
-            writer.writerow(["Vehicle Type", "Count", "Date", "Time"])
+            writer.writerow(["Timestamp", "Vehicle Type", "Count"])
 
 def log_vehicle(vehicle_type, count):
-    """Logs a vehicle type with its count and current date/time to CSV."""
-    now = datetime.datetime.now()
-    date_str = now.strftime("%Y-%m-%d")
-    time_str = now.strftime("%H:%M:%S")
+    """Logs vehicle detection to CSV with timestamp"""
+    timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     with open(CSV_FILE, "a", newline="", encoding="utf-8") as file:
         writer = csv.writer(file)
-        writer.writerow([vehicle_type, count, date_str, time_str])
+        writer.writerow([timestamp, vehicle_type, count])
 
 def show_csv_history():
-    """Displays the CSV file history if available."""
+    """Displays the CSV file history"""
     if os.path.exists(CSV_FILE):
-        with open(CSV_FILE, "r", encoding="utf-8") as file:
-            csv_reader = csv.reader(file)
-            data = list(csv_reader)
-        if len(data) > 1:
+        df = pd.read_csv(CSV_FILE)
+        if not df.empty:
             st.subheader("Detection History")
-            st.table(data[1:])
+            st.dataframe(df)
+            st.line_chart(df.groupby('Vehicle Type').sum()['Count'])
         else:
             st.info("No detection history found.")
 
@@ -48,148 +45,157 @@ initialize_csv()
 # ===============================
 # Load YOLOv8 Model
 # ===============================
-model = YOLO("yolov8n.pt")  # Ensure this file is in your working directory
+model = YOLO("yolov8n.pt")
 
 # ===============================
-# Streamlit UI Header & Sidebar
+# Streamlit UI Configuration
 # ===============================
-st.title("🚗 Smart Parking System - Real-time Vehicle Detection")
-st.write("Detect vehicles in real time using your webcam or by uploading an image.")
+st.title("🚗 Real-Time Smart Parking Analytics")
+st.write("Live vehicle detection and tracking with CSV logging")
 
 with st.sidebar:
     st.header("Settings")
     confidence_threshold = st.slider("Confidence Threshold", 0.0, 1.0, 0.5, 0.01)
     vehicle_classes = st.multiselect(
-        "Select Vehicle Classes",
+        "Vehicle Classes to Detect",
         options=['car', 'truck', 'bus', 'motorcycle'],
         default=['car', 'truck', 'bus', 'motorcycle']
     )
 
 # ===============================
-# Session State Initialization
+# Session State Management
 # ===============================
 if 'camera_active' not in st.session_state:
     st.session_state.camera_active = False
 if 'cap' not in st.session_state:
     st.session_state.cap = None
+if 'track_history' not in st.session_state:
+    st.session_state.track_history = {}
+if 'vehicle_counts' not in st.session_state:
+    st.session_state.vehicle_counts = {}
 
 # ===============================
-# Camera Control Buttons
+# Camera Control Functions
+# ===============================
+def start_camera_feed():
+    """Initializes camera and detection system"""
+    st.session_state.camera_active = True
+    st.session_state.cap = cv2.VideoCapture(0)
+    st.session_state.vehicle_counts = {vt: 0 for vt in vehicle_classes}
+    st.session_state.track_history = {}
+
+def stop_camera_feed():
+    """Releases camera resources"""
+    st.session_state.camera_active = False
+    if st.session_state.cap:
+        st.session_state.cap.release()
+    cv2.destroyAllWindows()
+
+# ===============================
+# UI Controls
 # ===============================
 col1, col2 = st.columns(2)
 with col1:
-    start_camera = st.button("🎥 Start Real-time Detection")
+    if st.button("🎥 Start Real-time Detection") and not st.session_state.camera_active:
+        start_camera_feed()
 with col2:
-    stop_camera = st.button("⏹️ Stop Camera")
-
-if start_camera:
-    st.session_state.camera_active = True
-    # Use CAP_DSHOW for Windows if needed; remove the flag for other OS
-    st.session_state.cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
-    # Initialize a dictionary to accumulate counts for this session
-    st.session_state.live_counts = {}
-
-if stop_camera:
-    st.session_state.camera_active = False
+    if st.button("⏹️ Stop Camera") and st.session_state.camera_active:
+        stop_camera_feed()
 
 # ===============================
-# Real-time Camera Detection
+# Real-Time Processing Loop
 # ===============================
-if st.session_state.camera_active and st.session_state.cap is not None and st.session_state.cap.isOpened():
+if st.session_state.camera_active and st.session_state.cap.isOpened():
     frame_placeholder = st.empty()
-    count_placeholder = st.empty()
-    # Initialize or reset live counts each time detection starts
-    live_counts = {}
+    stats_placeholder = st.empty()
     
-    st.write("Initializing camera, please wait...")
-    time.sleep(2)  # Warm-up delay
-    
-    # Run a loop to capture frames and process them
     while st.session_state.camera_active:
-        ret, frame = st.session_state.cap.read()
-        if not ret:
-            st.error("Failed to capture frame")
-            st.session_state.camera_active = False
+        success, frame = st.session_state.cap.read()
+        if not success:
+            st.error("Failed to capture video feed")
+            stop_camera_feed()
             break
-
-        # Convert frame to RGB for detection and display
-        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         
-        # Perform detection using YOLOv8
-        results = model(frame_rgb, conf=confidence_threshold, verbose=False)
+        # Perform object tracking
+        results = model.track(
+            frame,
+            persist=True,
+            conf=confidence_threshold,
+            classes=[2, 3, 5, 7],  # COCO class IDs for vehicles
+            verbose=False
+        )
         
-        # Process each detection result and update counts
-        for result in results:
-            for box in result.boxes:
-                x1, y1, x2, y2 = map(int, box.xyxy[0])
-                conf = box.conf[0].item()
-                label = result.names[int(box.cls[0])]
+        # Process detections
+        if results[0].boxes.id is not None:
+            boxes = results[0].boxes.xyxy.cpu()
+            track_ids = results[0].boxes.id.int().cpu().tolist()
+            clss = results[0].boxes.cls.int().cpu().tolist()
+            
+            for box, track_id, cls in zip(boxes, track_ids, clss):
+                label = model.names[cls]
+                if label not in vehicle_classes:
+                    continue
                 
-                if label in vehicle_classes and conf > confidence_threshold:
-                    color = (0, 255, 0)
-                    cv2.rectangle(frame_rgb, (x1, y1), (x2, y2), color, 2)
-                    cv2.putText(frame_rgb, f"{label.upper()} {conf:.2f}", 
-                                (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
-                    # Update running counts for each label
-                    live_counts[label] = live_counts.get(label, 0) + 1
+                # Update vehicle counts
+                if track_id not in st.session_state.track_history:
+                    st.session_state.vehicle_counts[label] += 1
+                    log_vehicle(label, 1)  # Log each new detection
+                
+                # Store tracking history
+                st.session_state.track_history[track_id] = label
+                
+                # Draw bounding boxes
+                x1, y1, x2, y2 = map(int, box)
+                cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
+                cv2.putText(frame, f"{label} #{track_id}", (x1, y1 - 10),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
         
-        # Calculate total vehicles in this frame (cumulative for the session)
-        total_count = sum(live_counts.values())
-        # Update placeholders with current counts and frame
-        count_placeholder.markdown(f"**Live Vehicle Counts:** {live_counts}  \n**Total Vehicles (Session):** {total_count}")
-        frame_placeholder.image(frame_rgb, caption="Live Camera Feed", use_column_width=True)
-        time.sleep(0.1)  # Small delay for smoother updates
-
-    # When the camera is stopped, release the resource
-    st.session_state.cap.release()
-    cv2.destroyAllWindows()
-    st.session_state.cap = None
-
-    # Log the final counts to CSV and show a success message
-    if live_counts:
-        for vehicle_type, count in live_counts.items():
-            log_vehicle(vehicle_type, count)
-        st.success("Logged live detection counts to CSV.")
-        st.write("Final Session Counts:", live_counts)
-    else:
-        st.info("No vehicles detected during the session.")
+        # Display frame
+        frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        frame_placeholder.image(frame, caption="Live Camera Feed", use_column_width=True)
+        
+        # Update statistics
+        stats_placeholder.markdown(f"""
+        **Live Vehicle Counts:**
+        - Total Vehicles: {sum(st.session_state.vehicle_counts.values())}
+        - Cars: {st.session_state.vehicle_counts.get('car', 0)}
+        - Trucks: {st.session_state.vehicle_counts.get('truck', 0)}
+        - Buses: {st.session_state.vehicle_counts.get('bus', 0)}
+        - Motorcycles: {st.session_state.vehicle_counts.get('motorcycle', 0)}
+        """)
 
 # ===============================
-# File Upload Detection
+# Image Upload Handling
 # ===============================
 st.subheader("Image Upload Detection")
-uploaded_file = st.file_uploader("Or upload an image", type=["jpg", "jpeg", "png"])
+uploaded_file = st.file_uploader("Upload Image", type=["jpg", "jpeg", "png"])
 if uploaded_file is not None:
     image = Image.open(uploaded_file)
     st.image(image, caption="Uploaded Image", use_column_width=True)
-    if st.button("🔍 Detect Vehicles in Uploaded Image"):
-        image_np = np.array(image)
-        results = model(image_np, conf=confidence_threshold, verbose=False)
-        detected_image = image_np.copy()
-        upload_counts = {}
+    
+    if st.button("🔍 Detect Vehicles in Image"):
+        results = model(np.array(image), conf=confidence_threshold, verbose=False)
+        counts = {vt: 0 for vt in vehicle_classes}
+        
+        # Process detections
         for result in results:
             for box in result.boxes:
-                x1, y1, x2, y2 = map(int, box.xyxy[0])
-                conf = box.conf[0].item()
-                label = result.names[int(box.cls[0])]
-                if label in vehicle_classes and conf > confidence_threshold:
-                    color = (0, 255, 0)
-                    cv2.rectangle(detected_image, (x1, y1), (x2, y2), color, 3)
-                    cv2.putText(detected_image, f"{label.upper()} {conf:.2f}",
-                                (x1, y1 - 15), cv2.FONT_HERSHEY_SIMPLEX, 1.0, color, 2)
-                    upload_counts[label] = upload_counts.get(label, 0) + 1
+                cls = int(box.cls[0])
+                label = result.names[cls]
+                if label in vehicle_classes:
+                    counts[label] += 1
         
-        total_upload = sum(upload_counts.values())
-        st.image(detected_image, caption="Detected Vehicles", use_column_width=True)
-        st.write("Detection Counts:", upload_counts)
-        st.write("Total Vehicles Detected:", total_upload)
-        # Log the uploaded image counts to CSV
-        for vehicle_type, count in upload_counts.items():
-            log_vehicle(vehicle_type, count)
-        st.success("Logged uploaded image detection counts to CSV.")
+        # Log and display results
+        for vt, count in counts.items():
+            if count > 0:
+                log_vehicle(vt, count)
+        st.success(f"Detected vehicles: {counts}")
 
 # ===============================
-# Display CSV History
+# Display Historical Data
 # ===============================
-st.subheader("Detection History")
 show_csv_history()
+
+# Cleanup on app exit
+if st.session_state.cap:
+    st.session_state.cap.release()
