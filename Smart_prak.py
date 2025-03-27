@@ -92,7 +92,8 @@ if os.path.exists(CSV_FILE):
     with open(CSV_FILE, "r", encoding="utf-8") as file:
         csv_reader = csv.reader(file)
         logs = list(csv_reader)
-    
+
+    # Skip the header row and display the rest
     if len(logs) > 1:
         st.subheader("📋 Vehicle Logs")
-        st.table(logs[1:])  # Skip header row
+        st.table(logs[1:])  # Correctly skip the header row
