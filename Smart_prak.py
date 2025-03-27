@@ -26,6 +26,7 @@ def log_vehicle(vehicle_type, vehicle_model, action):
     now = datetime.datetime.now()
     date = now.strftime("%Y-%m-%d")
     time = now.strftime("%H:%M:%S")
+
     try:
         with open(CSV_FILE, "a", newline="", encoding="utf-8") as file:
             writer = csv.writer(file)
@@ -106,7 +107,8 @@ if st.session_state.run_detection and st.session_state.cap is not None:
                     cv2.putText(frame, f"{label} ({conf:.2f})", (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
 
         # Display vehicle count
-        cv2.putText(frame, f"Vehicles Inside: {st.session_state.vehicle_count}", (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 2)
+        cv2.putText(frame, f"Vehicles Inside: {st.session_state.vehicle_count}", (50, 50), 
+                   cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 2)
 
         # Convert frame to RGB and display
         frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
@@ -125,7 +127,6 @@ if os.path.exists(CSV_FILE):
     with open(CSV_FILE, "r", encoding="utf-8") as file:
         csv_reader = csv.reader(file)
         logs = list(csv_reader)
-    
     if len(logs) > 1:
         st.subheader("📋 Vehicle Logs")
         st.table(logs[1:])  # Skip header row
