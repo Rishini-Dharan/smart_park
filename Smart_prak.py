@@ -31,6 +31,8 @@ def log_vehicle(vehicle_type, vehicle_model, action):
         st.success(f"Logged: {vehicle_type} {vehicle_model} {action} at {time} on {date}")
     except PermissionError:
         st.error("Error: Permission denied while writing to CSV. Ensure the file is not open elsewhere.")
+    except Exception as e:
+        st.error(f"An error occurred while logging: {e}")
 
 # Initialize CSV
 initialize_csv()
@@ -53,33 +55,37 @@ if image_file is not None:
     file_bytes = np.asarray(bytearray(image_file.read()), dtype=np.uint8)
     frame = cv2.imdecode(file_bytes, 1)
 
-    # Run vehicle detection on the captured frame
-    results = model(frame)
+    try:
+        # Run vehicle detection on the captured frame
+        results = model(frame)
 
-    # Process detections and draw bounding boxes/labels
-    for result in results:
-        for box in result.boxes:
-            # Get box coordinates, confidence, and label
-            x1, y1, x2, y2 = map(int, box.xyxy[0])
-            conf = box.conf[0].item()
-            label = result.names[int(box.cls[0])]
+        # Process detections and draw bounding boxes/labels
+        for result in results:
+            for box in result.boxes:
+                # Get box coordinates, confidence, and label
+                x1, y1, x2, y2 = map(int, box.xyxy[0])
+                conf = box.conf[0].item()
+                label = result.names[int(box.cls[0])]
 
-            # Process only if confidence > 0.5 and for specific vehicle types
-            if conf > 0.5 and label in ["car", "truck", "motorcycle"]:
-                # For demonstration, we log every detection as an "Entry"
-                log_vehicle(label, "Unknown Model", "Entry")
+                # Process only if confidence > 0.5 and for specific vehicle types
+                if conf > 0.5 and label in ["car", "truck", "motorcycle"]:
+                    # For demonstration, we log every detection as an "Entry"
+                    log_vehicle(label, "Unknown Model", "Entry")
 
-                # Draw bounding box and label
-                cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
-                cv2.putText(
-                    frame,
-                    f"{label} ({conf:.2f})",
-                    (x1, y1 - 10),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    0.5,
-                    (0, 255, 0),
-                    2
-                )
+                    # Draw bounding box and label
+                    cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
+                    cv2.putText(
+                        frame,
+                        f"{label} ({conf:.2f})",
+                        (x1, y1 - 10),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        0.5,
+                        (0, 255, 0),
+                        2
+                    )
+
+    except Exception as e:
+        st.error(f"Error during detection: {e}")
 
     # Convert frame to RGB for display in Streamlit
     frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
