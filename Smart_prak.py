@@ -11,9 +11,10 @@ CSV_FILE = "smart_parking_log.csv"
 ENTRY_ZONE = (100, 200, 300, 400)  # Example entry zone coordinates
 EXIT_ZONE = (400, 500, 600, 700)  # Example exit zone coordinates
 
-# Initialize YOLO model
+# Load YOLO model
 model = YOLO("yolov8n.pt")
 
+# Initialize CSV file
 def initialize_csv():
     """Creates the CSV file with headers if not exists or if empty."""
     if not os.path.exists(CSV_FILE) or os.stat(CSV_FILE).st_size == 0:
@@ -21,6 +22,9 @@ def initialize_csv():
             writer = csv.writer(file)
             writer.writerow(["Vehicle Type", "Vehicle Model", "Action", "Date", "Time"])
 
+initialize_csv()
+
+# Log vehicle entry/exit
 def log_vehicle(vehicle_type, action):
     """Logs vehicle entry/exit with time and date."""
     now = datetime.datetime.now()
@@ -34,6 +38,7 @@ def log_vehicle(vehicle_type, action):
     except PermissionError:
         st.error("Error: Permission denied while writing to CSV. Ensure the file is not open elsewhere.")
 
+# Process frame for vehicle detection and logging
 def process_frame(frame, vehicle_positions, vehicle_count):
     """Detect vehicles and handle entry/exit logic."""
     results = model(frame)
@@ -56,21 +61,17 @@ def process_frame(frame, vehicle_positions, vehicle_count):
                         log_vehicle(label, "Exit")
                         vehicle_count -= 1
 
-                # Draw bounding box and label
                 cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
                 cv2.putText(frame, f"{label} ({conf:.2f})", (x1, y1 - 10),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
 
     return frame, vehicle_positions, vehicle_count
 
-# Initialize CSV file
-initialize_csv()
-
-# Streamlit UI
+# Streamlit UI setup
 st.title("🚗 Smart Parking System")
 st.write("This system detects and logs vehicle entry/exit using YOLOv8 and OpenCV.")
 
-# Session state variables
+# Session state initialization
 if 'run_detection' not in st.session_state:
     st.session_state.run_detection = False
 if 'cap' not in st.session_state:
@@ -80,7 +81,7 @@ if 'vehicle_positions' not in st.session_state:
 if 'vehicle_count' not in st.session_state:
     st.session_state.vehicle_count = 0
 
-# UI for control buttons
+# UI components
 start_button = st.button("Start Detection")
 stop_button = st.button("Stop Detection")
 FRAME_WINDOW = st.empty()  # Placeholder for live video
@@ -88,7 +89,10 @@ FRAME_WINDOW = st.empty()  # Placeholder for live video
 if start_button:
     st.session_state.run_detection = True
     if st.session_state.cap is None:
-        st.session_state.cap = cv2.VideoCapture(0)
+        st.session_state.cap = cv2.VideoCapture(0)  # Initialize camera
+        if not st.session_state.cap.isOpened():
+            st.error("Failed to initialize the webcam. Please check camera settings.")
+            st.session_state.run_detection = False
 
 if stop_button:
     st.session_state.run_detection = False
@@ -107,7 +111,7 @@ if st.session_state.run_detection and st.session_state.cap is not None:
             # Display vehicle count
             cv2.putText(frame, f"Vehicles Inside: {st.session_state.vehicle_count}", (50, 50),
                         cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 2)
-            
+
             # Convert frame to RGB and display
             frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             FRAME_WINDOW.image(frame, channels="RGB")
