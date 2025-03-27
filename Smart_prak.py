@@ -6,6 +6,10 @@ import datetime
 import os
 import numpy as np
 from PIL import Image
+from ultralytics import YOLO
+
+# Load the pre-trained YOLOv8 model for vehicle detection
+model = YOLO("yolov8n.pt")
 
 # ===============================
 # CSV Logging Functions
@@ -114,6 +118,39 @@ uploaded_file = st.file_uploader("Choose an image...", type=["jpg", "jpeg", "png
 if uploaded_file is not None:
     image = Image.open(uploaded_file)
     st.image(image, caption="Uploaded Image", use_column_width=True)
+    
+    # Convert image to OpenCV format
+    image_cv = np.array(image.convert("RGB"))
+    image_cv = cv2.cvtColor(image_cv, cv2.COLOR_RGB2BGR)
+    
+    # Run vehicle detection on the uploaded image
+    results = model(image_cv)
+    
+    # Process detections and draw bounding boxes/labels
+    for result in results:
+        for box in result.boxes:
+            # Get box coordinates, confidence, and label
+            x1, y1, x2, y2 = map(int, box.xyxy[0])
+            conf = box.conf[0].item()
+            label = result.names[int(box.cls[0])]
+            
+            # Process only if confidence > 0.5 and for specific vehicle types
+            if conf > 0.5 and label in ["car", "truck", "motorcycle"]:
+                # Draw bounding box and label
+                cv2.rectangle(image_cv, (x1, y1), (x2, y2), (0, 255, 0), 2)
+                cv2.putText(
+                    image_cv,
+                    f"{label} ({conf:.2f})",
+                    (x1, y1 - 10),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.5,
+                    (0, 255, 0),
+                    2
+                )
+    
+    # Convert back to RGB for displaying in Streamlit
+    image_cv_rgb = cv2.cvtColor(image_cv, cv2.COLOR_BGR2RGB)
+    st.image(image_cv_rgb, caption="Detected Vehicles", use_column_width=True)
     log_event("Image Uploaded")
 
 # ===============================
