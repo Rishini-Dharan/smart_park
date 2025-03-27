@@ -1,6 +1,11 @@
 streamlit
-opencv-python-headless
+
 torch
 ultralytics
 numpy
 pandas
+
+opencv-python
+
+streamlit-webrtc
+
