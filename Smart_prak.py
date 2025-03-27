@@ -3,9 +3,7 @@ import cv2
 import csv
 import os
 import datetime
-import numpy as np
 from ultralytics import YOLO
-from collections import defaultdict
 from streamlit_webrtc import webrtc_streamer, VideoTransformerBase, RTCConfiguration
 
 # Load the pre-trained YOLOv8 model for vehicle detection
@@ -50,7 +48,6 @@ EXIT_ZONE_Y = 500   # vertical threshold for an exit event
 # Video Transformer for processing each video frame
 class YOLOVideoTransformer(VideoTransformerBase):
     def __init__(self):
-        # For a simple demo, track the last center_y for each label.
         self.last_center = {}
         self.vehicle_count = 0
 
