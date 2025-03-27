@@ -91,7 +91,7 @@ if start_button:
     if st.session_state.cap is None:
         st.session_state.cap = cv2.VideoCapture(0)  # Initialize camera
         if not st.session_state.cap.isOpened():
-            st.error("Failed to initialize the webcam. Please check camera settings.")
+            st.error("Failed to initialize the webcam. Please ensure your camera is accessible and not in use.")
             st.session_state.run_detection = False
 
 if stop_button:
