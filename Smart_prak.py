@@ -10,39 +10,51 @@ model = YOLO("yolov8n.pt")
 
 # Streamlit UI
 st.title("🚗 Smart Parking System - Vehicle Detection")
-st.write("Capture an image and detect vehicles in it using YOLOv8.")
+st.write("Capture an image or upload an image and detect vehicles in it using YOLOv8.")
 
-# Initialize session state for camera
-if 'cap' not in st.session_state:
-    st.session_state.cap = None
+# Camera Capture Button
+capture_button = st.button("📷 Capture Image from Camera")
 
-# Capture image button
-capture_button = st.button("Capture Image")
+# File Upload Option
+uploaded_file = st.file_uploader("Or upload an image", type=["jpg", "jpeg", "png"])
 
+# Initialize image variable
+image = None
+
+# Capture image from webcam
 if capture_button:
-    st.session_state.cap = cv2.VideoCapture(0)  # Open webcam
-    ret, frame = st.session_state.cap.read()
+    cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)  # Use CAP_DSHOW to prevent errors on Windows
+    cap.set(3, 640)  # Set width
+    cap.set(4, 480)  # Set height
+
+    # Wait for camera to initialize
+    st.write("Initializing camera, please wait...")
+    for _ in range(5):  # Wait for a few frames to stabilize
+        ret, frame = cap.read()
+
     if ret:
-        # Convert the captured frame to RGB format
         frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        st.session_state.image = frame  # Store the image in session state
-        st.image(frame, caption="Captured Image", use_column_width=True)
+        image = frame
+        st.image(image, caption="Captured Image", use_column_width=True)
     else:
-        st.error("Failed to capture image.")
-    
-    # Release the camera
-    st.session_state.cap.release()
-    st.session_state.cap = None
+        st.error("❌ Failed to capture image. Please try again.")
+
+    # Release camera
+    cap.release()
+    cv2.destroyAllWindows()
+
+# If an image is uploaded, use it instead
+if uploaded_file is not None:
+    image = np.array(Image.open(uploaded_file))
+    st.image(image, caption="Uploaded Image", use_column_width=True)
 
 # Detect Vehicles Button
-if 'image' in st.session_state and st.button("Detect Vehicles"):
-    image = st.session_state.image
-
-    # Convert the image to the format required by YOLO
-    image_np = np.array(image)
-
+if image is not None and st.button("🚗 Detect Vehicles"):
     # Perform vehicle detection
-    results = model(image_np)
+    results = model(image)
+
+    # Convert image to OpenCV format
+    image_np = image.copy()
 
     # Draw bounding boxes and labels
     for result in results:
