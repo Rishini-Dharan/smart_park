@@ -3,8 +3,11 @@ import cv2
 import csv
 import os
 import datetime
+import numpy as np
 from ultralytics import YOLO
-from streamlit_webrtc import webrtc_streamer, VideoTransformerBase, RTCConfiguration
+from collections import defaultdict
+import av
+import threading
 
 # Load the pre-trained YOLOv8 model for vehicle detection
 model = YOLO("yolov8n.pt")
@@ -31,7 +34,7 @@ def log_vehicle(vehicle_type, vehicle_model, action):
         with open(CSV_FILE, "a", newline="", encoding="utf-8") as file:
             writer = csv.writer(file)
             writer.writerow([vehicle_type, vehicle_model, action, date, time])
-        st.info(f"Logged: {vehicle_type} {vehicle_model} {action} at {time} on {date}")
+        st.success(f"Logged: {vehicle_type} {vehicle_model} {action} at {time} on {date}")
     except PermissionError:
         st.error("Error: Permission denied while writing to CSV. Ensure the file is not open elsewhere.")
 
@@ -39,64 +42,118 @@ def log_vehicle(vehicle_type, vehicle_model, action):
 initialize_csv()
 
 st.title("🚗 Smart Parking System - Video Detection")
-st.write("Detect and log vehicle entry/exit using YOLOv8 and OpenCV via continuous video streaming.")
+st.write("Detect and log vehicle entry/exit using YOLOv8 and OpenCV")
 
 # Define entry and exit zones (adjust as per your camera's view)
 ENTRY_ZONE_Y = 200  # vertical threshold for an entry event
 EXIT_ZONE_Y = 500   # vertical threshold for an exit event
 
-# Video Transformer for processing each video frame
-class YOLOVideoTransformer(VideoTransformerBase):
-    def __init__(self):
-        self.last_center = {}
-        self.vehicle_count = 0
+# Session state to store vehicle count and logs
+if 'vehicle_count' not in st.session_state:
+    st.session_state.vehicle_count = 0
+if 'logs' not in st.session_state:
+    st.session_state.logs = []
 
-    def transform(self, frame):
-        img = frame.to_ndarray(format="bgr24")
-        results = model(img)
+# Video capture setup
+cap = None
+stop_event = threading.Event()
+
+def process_frame(frame):
+    """Process each frame with YOLO detection and tracking."""
+    img = frame.to_ndarray(format="bgr24")
+    results = model(img, verbose=False)  # Disable verbose output
+    
+    for result in results:
+        for box in result.boxes:
+            x1, y1, x2, y2 = map(int, box.xyxy[0])
+            conf = box.conf[0].item()
+            label = result.names[int(box.cls[0])]
+            
+            # Only consider vehicles with sufficient confidence
+            if conf > 0.5 and label in ["car", "truck", "motorcycle", "bus"]:
+                center_x, center_y = (x1 + x2) // 2, (y1 + y2) // 2
+                prev_center = st.session_state.get(f"last_center_{label}", None)
+                st.session_state[f"last_center_{label}"] = center_y
+                
+                # Entry detection: moving downward across the ENTRY_ZONE_Y
+                if prev_center is not None and prev_center < ENTRY_ZONE_Y <= center_y:
+                    log_vehicle(label, "Unknown Model", "Entry")
+                    st.session_state.vehicle_count += 1
+                # Exit detection: moving upward across the EXIT_ZONE_Y
+                elif prev_center is not None and prev_center > EXIT_ZONE_Y >= center_y:
+                    log_vehicle(label, "Unknown Model", "Exit")
+                    st.session_state.vehicle_count = max(0, st.session_state.vehicle_count - 1)
+
+                # Draw detection results on the frame
+                cv2.rectangle(img, (x1, y1), (x2, y2), (0, 255, 0), 2)
+                cv2.putText(img, f"{label} ({conf:.2f})", (x1, y1 - 10),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+
+    # Display the vehicle count on the frame
+    cv2.putText(img, f"Vehicles Inside: {st.session_state.vehicle_count}", (50, 50),
+                cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 2)
+    
+    # Draw entry and exit zones
+    cv2.line(img, (0, ENTRY_ZONE_Y), (img.shape[1], ENTRY_ZONE_Y), (255, 0, 0), 2)
+    cv2.putText(img, "Entry Zone", (50, ENTRY_ZONE_Y - 20), 
+                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 2)
+    cv2.line(img, (0, EXIT_ZONE_Y), (img.shape[1], EXIT_ZONE_Y), (0, 0, 255), 2)
+    cv2.putText(img, "Exit Zone", (50, EXIT_ZONE_Y - 20), 
+                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2)
+    
+    return img
+
+def video_capture():
+    """Video capture thread function."""
+    global cap
+    cap = cv2.VideoCapture(0)  # Use 0 for default camera
+    
+    while not stop_event.is_set():
+        ret, frame = cap.read()
+        if not ret:
+            st.error("Failed to capture frame from camera")
+            break
+            
+        # Process frame with YOLO
+        frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        results = model(frame, verbose=False)
         
+        # Draw detections (simplified for mobile)
         for result in results:
             for box in result.boxes:
                 x1, y1, x2, y2 = map(int, box.xyxy[0])
                 conf = box.conf[0].item()
                 label = result.names[int(box.cls[0])]
                 
-                # Only consider vehicles with sufficient confidence
-                if conf > 0.5 and label in ["car", "truck", "motorcycle"]:
-                    center_x, center_y = (x1 + x2) // 2, (y1 + y2) // 2
-                    prev_center = self.last_center.get(label, None)
-                    self.last_center[label] = center_y  # Update the last seen vertical position
-                    
-                    # Entry detection: moving downward across the ENTRY_ZONE_Y
-                    if prev_center is not None and prev_center < ENTRY_ZONE_Y <= center_y:
-                        log_vehicle(label, "Unknown Model", "Entry")
-                        self.vehicle_count += 1
-                    # Exit detection: moving upward across the EXIT_ZONE_Y
-                    elif prev_center is not None and prev_center > EXIT_ZONE_Y >= center_y:
-                        log_vehicle(label, "Unknown Model", "Exit")
-                        self.vehicle_count = max(0, self.vehicle_count - 1)
+                if conf > 0.5 and label in ["car", "truck", "motorcycle", "bus"]:
+                    cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
+                    cv2.putText(frame, f"{label} {conf:.2f}", (x1, y1-10), 
+                               cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+        
+        # Display the frame in Streamlit
+        stframe.image(frame, channels="RGB", use_column_width=True)
+        
+    if cap:
+        cap.release()
 
-                    # Draw detection results on the frame
-                    cv2.rectangle(img, (x1, y1), (x2, y2), (0, 255, 0), 2)
-                    cv2.putText(img, f"{label} ({conf:.2f})", (x1, y1 - 10),
-                                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+# Streamlit UI
+col1, col2 = st.columns(2)
+with col1:
+    start_button = st.button("Start Detection")
+with col2:
+    stop_button = st.button("Stop Detection")
 
-        # Display the vehicle count on the frame
-        cv2.putText(img, f"Vehicles Inside: {self.vehicle_count}", (50, 50),
-                    cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 2)
-        return img
+stframe = st.empty()
 
-# RTCConfiguration with default ICE servers
-RTC_CONFIGURATION = RTCConfiguration(
-    {"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]}
-)
+if start_button:
+    stop_event.clear()
+    thread = threading.Thread(target=video_capture)
+    thread.start()
 
-# Start the WebRTC video streamer with the YOLO transformer
-webrtc_streamer(
-    key="smart-parking-video",
-    video_transformer_factory=YOLOVideoTransformer,
-    rtc_configuration=RTC_CONFIGURATION,
-)
+if stop_button:
+    stop_event.set()
+    if cap:
+        cap.release()
 
 # Display vehicle logs if available
 if os.path.exists(CSV_FILE):
@@ -107,3 +164,20 @@ if os.path.exists(CSV_FILE):
     if len(logs) > 1:
         st.subheader("📋 Vehicle Logs")
         st.table(logs[1:])  # Skip header row
+
+# Mobile-friendly instructions
+st.markdown("""
+### 📱 Mobile Usage Instructions:
+1. Open this page in Chrome or Safari
+2. Grant camera permissions when prompted
+3. Position your phone to view the parking area
+4. Adjust the ENTRY_ZONE_Y and EXIT_ZONE_Y values in the code to match your camera view
+""")
+
+# Performance optimization tips
+st.markdown("""
+### ⚡ Performance Tips:
+- Use good lighting conditions
+- Position camera at a higher vantage point
+- For better accuracy, train a custom YOLO model on parking lot images
+""")
