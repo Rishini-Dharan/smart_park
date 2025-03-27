@@ -89,7 +89,7 @@ if stop_camera:
 # ===============================
 # Real-time Camera Streaming
 # ===============================
-if st.session_state.camera_active and st.session_state.cap is not None and st.session_state.cap.isOpened():
+if st.session_state.camera_active and st.session_state.cap is not None:
     frame_placeholder = st.empty()
     while st.session_state.camera_active:
         ret, frame = st.session_state.cap.read()
@@ -106,7 +106,6 @@ if st.session_state.camera_active and st.session_state.cap is not None and st.se
     if st.session_state.cap is not None:
         st.session_state.cap.release()
         st.session_state.cap = None
-
     # Close all OpenCV windows
     cv2.destroyAllWindows()
 
