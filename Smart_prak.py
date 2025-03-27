@@ -45,11 +45,19 @@ st.markdown(
     """
 )
 
-# Start capturing video from the webcam
-cap = cv2.VideoCapture(0)
+# Function to open webcam with different indices
+def open_webcam():
+    for index in range(3):
+        cap = cv2.VideoCapture(index)
+        if cap.isOpened():
+            return cap
+    return None
 
-if not cap.isOpened():
-    st.error("Error: Could not open webcam.")
+# Start capturing video from the webcam
+cap = open_webcam()
+
+if not cap:
+    st.error("Error: Could not open webcam. Please check the connection and permissions.")
 else:
     stframe = st.empty()
     while True:
