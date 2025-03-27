@@ -4,8 +4,6 @@ import time
 import csv
 import datetime
 import os
-import numpy as np
-from PIL import Image
 
 # ===============================
 # CSV Logging Functions
@@ -48,7 +46,7 @@ initialize_csv()
 # ===============================
 # Streamlit UI Header & Sidebar
 # ===============================
-st.title("🚗 Smart Parking System - Camera Feed")
+st.title("🚗 Webcam Viewer")
 st.write("Click the button below to open your webcam.")
 
 # ===============================
@@ -72,7 +70,11 @@ with col2:
 if start_camera:
     st.session_state.camera_active = True
     st.session_state.cap = cv2.VideoCapture(0)  # Open camera
-    log_event("Camera Started")  # Log event
+    if st.session_state.cap.isOpened():
+        log_event("Camera Started")  # Log event
+    else:
+        st.error("Failed to open the camera. Please check your settings.")
+        st.session_state.camera_active = False
 
 # Stop camera
 if stop_camera:
@@ -88,12 +90,12 @@ if stop_camera:
 # ===============================
 if st.session_state.camera_active and st.session_state.cap is not None and st.session_state.cap.isOpened():
     frame_placeholder = st.empty()
-    st.write("**CV is running...**")
+    st.write("**Live Camera Feed is running...**")
     
     while st.session_state.camera_active:
         ret, frame = st.session_state.cap.read()
         if not ret:
-            st.error("Failed to capture frame from camera.")
+            st.error("Failed to capture frame from the camera.")
             st.session_state.camera_active = False
             break
         
@@ -109,16 +111,6 @@ if st.session_state.camera_active and st.session_state.cap is not None and st.se
         st.session_state.cap.release()
         cv2.destroyAllWindows()
         st.session_state.cap = None
-
-# ===============================
-# File Upload Section
-# ===============================
-st.subheader("Upload an Image")
-uploaded_file = st.file_uploader("Choose an image...", type=["jpg", "jpeg", "png"])
-if uploaded_file is not None:
-    image = Image.open(uploaded_file)
-    st.image(image, caption="Uploaded Image", use_column_width=True)
-    log_event("Image Uploaded")
 
 # ===============================
 # Display CSV History
